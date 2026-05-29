@@ -11,7 +11,7 @@
     <section class="hero">
       <div>
         <h1>GLM 科研翻译工作流</h1>
-        <p>先由 GLM 自动生成翻译 Prompt 和术语表，再进行正式翻译。</p>
+        <p>一次请求内完成 Prompt 生成、术语提取、翻译和检查，减少 API 限流风险。</p>
       </div>
       <div class="badge" id="modelBadge">Model</div>
     </section>
@@ -62,7 +62,7 @@
     </section>
 
     <section class="actions">
-      <button id="translateBtn">生成 Prompt 并翻译</button>
+      <button id="translateBtn">一键完成工作流</button>
       <button id="copyResultBtn" class="secondary">复制结果</button>
       <button id="downloadBtn" class="secondary">下载 Markdown</button>
     </section>
@@ -71,14 +71,14 @@
 
     <section class="panel output hidden" id="promptBoxWrap">
       <div class="section-title">
-        <h2>第一步：GLM 生成的 Prompt 与术语表</h2>
+        <h2>Prompt 与术语表</h2>
       </div>
       <pre id="promptBox"></pre>
     </section>
 
     <section class="panel output hidden" id="resultBoxWrap">
       <div class="section-title">
-        <h2>第二步：翻译结果</h2>
+        <h2>完整结果</h2>
       </div>
       <pre id="resultBox"></pre>
     </section>

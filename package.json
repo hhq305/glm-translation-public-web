@@ -1,6 +1,6 @@
 {
   "name": "glm-translation-public-web-v2",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A public translation workflow website powered by GLM-4.7-Flash with prompt generation and terminology extraction.",
   "main": "server.js",
   "scripts": {

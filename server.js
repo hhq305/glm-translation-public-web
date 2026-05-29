@@ -182,79 +182,79 @@ app.post('/api/translate-workflow', rateLimit, requireAccessCode, async (req, re
     const styleRules = getStyleRules(textType);
     const mergedGlossary = `${baseTerminology}\n${userGlossary || ''}`.trim();
 
-    const promptBuilderMessages = [
+    const workflowMessages = [
       {
         role: 'system',
-        content: 'You are a prompt engineer and terminology extraction assistant for academic translation. Return structured and directly usable content.'
+        content: `You are an expert academic translation workflow assistant.
+You must complete the entire workflow in one response:
+1. Generate a task-specific translation prompt.
+2. Extract and merge a bilingual terminology glossary.
+3. Translate the source text.
+4. Check terminology, style, logic, and ambiguity.
+
+Do not call external sources. Do not invent data, methods, references, or conclusions.
+Return structured content with the exact headings requested by the user.`
       },
       {
         role: 'user',
-        content: `Create a custom translation prompt and extract a bilingual terminology glossary for the following source text.
+        content: `Complete this translation workflow in ONE response.
 
 Text type: ${textType}
 Translation direction: ${direction}
 
-Existing glossary that must be respected:
+Existing glossary that must be respected and merged with newly extracted terms:
 ${mergedGlossary}
 
 Style rules:
 ${styleRules}
 
+Source text:
+${sourceText}
+
 Tasks:
-1. Identify the likely field and translation direction.
-2. Extract domain-specific terms, abbreviations, chemical species, instruments, variables, model names, and methods.
-3. Merge the extracted terms with the existing glossary.
-4. Create a complete translation prompt that can be used by another GLM call.
-5. The prompt must require a final output with these sections:
-   【Translation】
-   【Chinese explanation / 中文对照】
-   【Terminology check】
-   【Prompt used】
-   【Issues to confirm】
+1. Identify the likely academic or practical field.
+2. Determine translation direction. If direction is auto, translate Chinese to English and English to Chinese.
+3. Generate a custom translation prompt for this exact text.
+4. Extract domain-specific terms, abbreviations, chemical species, instruments, variables, model names, and methods. Merge them with the existing glossary.
+5. Translate the source text according to the generated prompt and glossary.
+6. Check terminology consistency, tense, grammar, logic, units, symbols, chemical formulas, variables, and possible ambiguity.
 
-Return exactly with these headings:
+Output exactly with these sections:
 【Generated prompt】
+Write the actual prompt that guided the translation.
+
 【Auto glossary】
+Use a concise table with: Source term | Recommended translation | Note.
+
 【Detected field】
+State the field briefly.
+
 【Translation direction】
+State the direction briefly.
 
-Source text:
-${sourceText}`
+【Translation】
+Provide the final translation. For academic paper methods and results, use past tense. Avoid unnecessary present participles and em dashes.
+
+【Chinese explanation / 中文对照】
+Give a Chinese explanation or Chinese counterpart so the user can verify meaning. If the target language is Chinese, briefly explain key choices in Chinese.
+
+【Terminology check】
+List whether key glossary terms were followed and whether any terms need confirmation.
+
+【Quality check】
+Check tense, grammar, logic, units, symbols, and style.
+
+【Issues to confirm】
+List any ambiguous points. If none, write “None”.`
       }
     ];
 
-    const generated = await callGLM(promptBuilderMessages, 0.15);
-
-    const translationMessages = [
-      {
-        role: 'system',
-        content: 'You are a careful academic translation assistant. Follow the generated prompt strictly. Do not add unsupported facts.'
-      },
-      {
-        role: 'user',
-        content: `Use the generated prompt and glossary below to translate the source text.
-
-${generated}
-
-Important extra constraints:
-1. Follow the terminology glossary strictly.
-2. For paper methods and results, use past tense.
-3. Avoid unnecessary present participles.
-4. Avoid em dashes.
-5. Keep units, symbols, equations, variables, and chemical formulas unchanged.
-6. If the text is Chinese, translate into English. If the text is English, translate into Chinese unless the generated prompt says otherwise.
-7. Include the generated prompt in the final section 【Prompt used】 so the user can inspect it.
-
-Source text:
-${sourceText}`
-      }
-    ];
-
-    const translation = await callGLM(translationMessages, 0.2);
+    const result = await callGLM(workflowMessages, 0.2);
 
     res.json({
-      generatedPromptAndGlossary: generated,
-      result: translation
+      result,
+      generatedPromptAndGlossary: '',
+      workflowMode: 'single_call'
     });
   } catch (err) {
     console.error(err);

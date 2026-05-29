@@ -73,7 +73,7 @@ els.translateBtn.addEventListener('click', async () => {
   els.resultBoxWrap.classList.add('hidden');
   els.promptBox.textContent = '';
   els.resultBox.textContent = '';
-  showStatus('正在执行两步工作流：先生成 Prompt 和术语表，再翻译。请稍等。');
+  showStatus('正在执行单次工作流：生成 Prompt、提取术语、翻译和检查。请稍等。');
 
   try {
     const res = await fetch('/api/translate-workflow', {
@@ -93,11 +93,9 @@ els.translateBtn.addEventListener('click', async () => {
       throw new Error(data.error || '请求失败。');
     }
 
-    els.promptBox.textContent = data.generatedPromptAndGlossary || '';
     els.resultBox.textContent = data.result || '';
-    els.promptBoxWrap.classList.remove('hidden');
     els.resultBoxWrap.classList.remove('hidden');
-    showStatus('完成。你可以检查 Prompt、术语表和译文。');
+    showStatus('完成。结果里已包含 Prompt、术语表、译文和检查。');
   } catch (err) {
     showStatus(err.message || '翻译失败。', true);
   } finally {
@@ -122,7 +120,7 @@ els.downloadBtn.addEventListener('click', () => {
     showStatus('还没有可下载的结果。', true);
     return;
   }
-  const md = `# GLM Translation Workflow Result\n\n## Generated Prompt and Glossary\n\n${prompt}\n\n## Translation Result\n\n${result}\n`;
+  const md = `# GLM Translation Workflow Result\n\n${result}\n`;
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
