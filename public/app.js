@@ -2,24 +2,28 @@ const els = {
   modelBadge: document.getElementById('modelBadge'),
   textType: document.getElementById('textType'),
   direction: document.getElementById('direction'),
+  customPromptMode: document.getElementById('customPromptMode'),
+  customPrompt: document.getElementById('customPrompt'),
+  customPromptHint: document.getElementById('customPromptHint'),
   accessCodeWrap: document.getElementById('accessCodeWrap'),
   accessCode: document.getElementById('accessCode'),
   sourceText: document.getElementById('sourceText'),
   userGlossary: document.getElementById('userGlossary'),
   lengthHint: document.getElementById('lengthHint'),
+  modePromptPreview: document.getElementById('modePromptPreview'),
   clearBtn: document.getElementById('clearBtn'),
   loadBaseGlossaryBtn: document.getElementById('loadBaseGlossaryBtn'),
   translateBtn: document.getElementById('translateBtn'),
   copyResultBtn: document.getElementById('copyResultBtn'),
   downloadBtn: document.getElementById('downloadBtn'),
   statusBox: document.getElementById('statusBox'),
-  promptBoxWrap: document.getElementById('promptBoxWrap'),
   resultBoxWrap: document.getElementById('resultBoxWrap'),
-  promptBox: document.getElementById('promptBox'),
   resultBox: document.getElementById('resultBox')
 };
 
-let appConfig = { baseTerminology: '', maxTextLength: 12000, requiresAccessCode: false };
+let appConfig = { baseTerminology: '', maxTextLength: 12000, maxCustomPromptLength: 3000, requiresAccessCode: false, modePrompts: {} };
+let cooldownTimer = null;
+const COOLDOWN_SECONDS = 30;
 
 function showStatus(message, isError = false) {
   els.statusBox.textContent = message;
@@ -27,19 +31,15 @@ function showStatus(message, isError = false) {
   els.statusBox.classList.toggle('error', isError);
 }
 
-function hideStatus() {
-  els.statusBox.classList.add('hidden');
-}
-
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
     appConfig = await res.json();
     els.modelBadge.textContent = appConfig.model || 'GLM';
-    if (appConfig.requiresAccessCode) {
-      els.accessCodeWrap.classList.remove('hidden');
-    }
+    if (appConfig.requiresAccessCode) els.accessCodeWrap.classList.remove('hidden');
     updateLengthHint();
+    updateCustomPromptHint();
+    updatePromptPreview();
   } catch (err) {
     showStatus('配置加载失败，请检查服务是否正常运行。', true);
   }
@@ -50,7 +50,36 @@ function updateLengthHint() {
   els.lengthHint.textContent = `${len} / ${appConfig.maxTextLength || 12000} 字符`;
 }
 
+function updateCustomPromptHint() {
+  const len = els.customPrompt.value.length;
+  els.customPromptHint.textContent = `${len} / ${appConfig.maxCustomPromptLength || 3000} 字符`;
+}
+
+function updatePromptPreview() {
+  const prompt = appConfig.modePrompts?.[els.textType.value] || '';
+  els.modePromptPreview.textContent = prompt || 'Prompt 加载中。';
+}
+
+function startCooldown() {
+  let left = COOLDOWN_SECONDS;
+  els.translateBtn.disabled = true;
+  els.translateBtn.textContent = `冷却中 ${left}s`;
+  cooldownTimer = setInterval(() => {
+    left -= 1;
+    if (left <= 0) {
+      clearInterval(cooldownTimer);
+      cooldownTimer = null;
+      els.translateBtn.disabled = false;
+      els.translateBtn.textContent = '按 Prompt 翻译';
+      return;
+    }
+    els.translateBtn.textContent = `冷却中 ${left}s`;
+  }, 1000);
+}
+
 els.sourceText.addEventListener('input', updateLengthHint);
+els.customPrompt.addEventListener('input', updateCustomPromptHint);
+els.textType.addEventListener('change', updatePromptPreview);
 
 els.clearBtn.addEventListener('click', () => {
   els.sourceText.value = '';
@@ -69,11 +98,9 @@ els.translateBtn.addEventListener('click', async () => {
   }
 
   els.translateBtn.disabled = true;
-  els.promptBoxWrap.classList.add('hidden');
   els.resultBoxWrap.classList.add('hidden');
-  els.promptBox.textContent = '';
   els.resultBox.textContent = '';
-  showStatus('正在执行单次工作流：生成 Prompt、提取术语、翻译和检查。请稍等。');
+  showStatus('正在按当前模式 Prompt 与自定义要求执行翻译、术语提取和检查。请稍等。');
 
   try {
     const res = await fetch('/api/translate-workflow', {
@@ -84,23 +111,26 @@ els.translateBtn.addEventListener('click', async () => {
         textType: els.textType.value,
         direction: els.direction.value,
         userGlossary: els.userGlossary.value,
+        customPrompt: els.customPrompt.value,
+        customPromptMode: els.customPromptMode.value,
         accessCode: els.accessCode.value
       })
     });
 
     const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || '请求失败。');
-    }
+    if (!res.ok) throw new Error(data.error || '请求失败。');
 
     els.resultBox.textContent = data.result || '';
     els.resultBoxWrap.classList.remove('hidden');
-    showStatus('完成。结果里已包含 Prompt、术语表、译文和检查。');
+    showStatus('完成。已按固定 Prompt 和自定义 Prompt 输出结果。');
   } catch (err) {
     showStatus(err.message || '翻译失败。', true);
-  } finally {
     els.translateBtn.disabled = false;
+    els.translateBtn.textContent = '按 Prompt 翻译';
+    return;
   }
+
+  startCooldown();
 });
 
 els.copyResultBtn.addEventListener('click', async () => {
@@ -114,9 +144,8 @@ els.copyResultBtn.addEventListener('click', async () => {
 });
 
 els.downloadBtn.addEventListener('click', () => {
-  const prompt = els.promptBox.textContent || '';
   const result = els.resultBox.textContent || '';
-  if (!prompt && !result) {
+  if (!result) {
     showStatus('还没有可下载的结果。', true);
     return;
   }

@@ -11,7 +11,7 @@
     <section class="hero">
       <div>
         <h1>GLM 科研翻译工作流</h1>
-        <p>一次请求内完成 Prompt 生成、术语提取、翻译和检查，减少 API 限流风险。</p>
+        <p>选择模式后自动使用固定 Prompt，也可以加入自定义 Prompt，再完成术语提取、翻译和检查。</p>
       </div>
       <div class="badge" id="modelBadge">Model</div>
     </section>
@@ -46,6 +46,29 @@
 
     <section class="panel">
       <div class="section-title">
+        <h2>当前模式固定 Prompt</h2>
+      </div>
+      <pre id="modePromptPreview" class="prompt-preview"></pre>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <h2>自定义 Prompt，可选</h2>
+        <label class="inline-select">使用方式
+          <select id="customPromptMode">
+            <option value="append">作为补充要求</option>
+            <option value="override">作为优先要求</option>
+          </select>
+        </label>
+      </div>
+      <textarea id="customPrompt" class="custom-prompt" placeholder="例如：请只输出英文译文和中文解释，不要输出术语检查。
+例如：请把译文写得更适合论文摘要，句子更短。
+例如：所有术语首次出现写全称，后续只用缩写。"></textarea>
+      <div class="small" id="customPromptHint">0 字符</div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
         <h2>原文</h2>
         <button id="clearBtn" class="ghost">清空</button>
       </div>
@@ -62,19 +85,12 @@
     </section>
 
     <section class="actions">
-      <button id="translateBtn">一键完成工作流</button>
+      <button id="translateBtn">按 Prompt 翻译</button>
       <button id="copyResultBtn" class="secondary">复制结果</button>
       <button id="downloadBtn" class="secondary">下载 Markdown</button>
     </section>
 
     <section class="panel status hidden" id="statusBox"></section>
-
-    <section class="panel output hidden" id="promptBoxWrap">
-      <div class="section-title">
-        <h2>Prompt 与术语表</h2>
-      </div>
-      <pre id="promptBox"></pre>
-    </section>
 
     <section class="panel output hidden" id="resultBoxWrap">
       <div class="section-title">

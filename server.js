@@ -11,11 +11,11 @@ const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/p
 const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.7-flash';
 const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 12000);
 const RATE_LIMIT_PER_HOUR = Number(process.env.RATE_LIMIT_PER_HOUR || 60);
+const GLM_MAX_OUTPUT_TOKENS = Number(process.env.GLM_MAX_OUTPUT_TOKENS || 4000);
+const MAX_CUSTOM_PROMPT_LENGTH = Number(process.env.MAX_CUSTOM_PROMPT_LENGTH || 3000);
 const SITE_ACCESS_CODE = process.env.SITE_ACCESS_CODE || '';
 
-app.use(helmet({
-  contentSecurityPolicy: false
-}));
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -59,7 +59,8 @@ async function callGLM(messages, temperature = 0.2) {
     body: JSON.stringify({
       model: GLM_MODEL,
       messages,
-      temperature
+      temperature,
+      max_tokens: GLM_MAX_OUTPUT_TOKENS
     })
   });
 
@@ -112,51 +113,31 @@ const baseTerminology = `
 机理模型 = mechanistic model
 `;
 
-function getStyleRules(textType) {
-  const common = `
-General rules:
-1. Keep scientific meaning accurate.
-2. Use concise and natural language.
-3. Keep chemical formulas, units, equations, variables, and sample IDs unchanged.
-4. Do not invent data, methods, references, or conclusions.
-5. If the source text is ambiguous, translate conservatively and list it under "需要确认".
-6. Preserve paragraph structure unless splitting improves clarity.
-`;
+function getModePrompt(textType) {
+  const common = `You are a careful translation assistant. Translate accurately and naturally. Keep chemical formulas, units, equations, variables, sample IDs, and numbers unchanged. Do not invent data, references, methods, or conclusions. Extract only important technical terms from the source text and merge them with the provided glossary. If something is unclear, translate conservatively and list it under issues to confirm.`;
 
-  const map = {
-    paper: `Academic paper mode:
-1. Use formal academic English.
-2. For experimental methods and results, use past tense.
-3. Avoid unnecessary present participles.
-4. Avoid em dashes.
-5. Improve logic and readability without changing the meaning.
-6. Keep terminology consistent across the whole translation.`,
-    reviewer: `Reviewer response mode:
-1. Use polite, precise, and professional English.
-2. Avoid overclaiming.
-3. Clearly state what was revised, added, clarified, or checked.
-4. Keep the tone respectful and concise.`,
-    email: `Email mode:
-1. Use natural and polite English.
-2. Keep it short and clear.
-3. Avoid overly formal or stiff language unless the message is to a professor, editor, or administrator.`,
-    ppt: `Presentation script mode:
-1. Use spoken English.
-2. Keep sentences short.
-3. Add smooth transitions when needed.
-4. Avoid dense written-paper style.`,
-    caption: `Figure and table caption mode:
-1. Use concise caption style.
-2. Keep abbreviations, symbols, and units consistent.
-3. Avoid long explanations.
-4. Explain abbreviations when needed.`,
-    general: `General translation mode:
-1. Translate accurately and naturally.
-2. Keep the tone clear and readable.
-3. Avoid over-editing unless the original text is unclear.`
+  const prompts = {
+    paper: `${common}\nMode: Academic paper. Use formal academic language. For experimental methods and results, use past tense. Avoid unnecessary present participles. Avoid em dashes. Improve clarity, grammar, and logical flow without changing the meaning. Keep terminology consistent.`,
+    reviewer: `${common}\nMode: Response to reviewers. Use polite, precise, and professional language. Avoid overclaiming. Clearly state what was revised, added, checked, clarified, or corrected. Keep the response concise and respectful.`,
+    email: `${common}\nMode: Email. Use natural, polite, and concise English. Avoid stiff expressions. Keep the message clear and easy to read. For professors, editors, or administrators, keep a professional tone.`,
+    ppt: `${common}\nMode: Presentation script. Use spoken English. Keep sentences short and smooth. Add simple transitions when useful. Avoid dense paper-style sentences. Make the text easy to speak aloud.`,
+    caption: `${common}\nMode: Figure or table caption. Use concise caption style. Keep abbreviations, units, symbols, and figure labels consistent. Avoid long explanations. Explain abbreviations only when needed.`,
+    general: `${common}\nMode: General translation. Translate accurately and naturally. Keep the style clear, readable, and faithful to the source. Avoid over-editing unless the original text is unclear.`
   };
 
-  return `${common}\n${map[textType] || map.general}`;
+  return prompts[textType] || prompts.general;
+}
+
+function getTextTypeLabel(textType) {
+  const labels = {
+    paper: '论文正文',
+    reviewer: '回复审稿人',
+    email: '英文邮件',
+    ppt: 'PPT讲稿',
+    caption: '图注 / 表注',
+    general: '通用翻译'
+  };
+  return labels[textType] || labels.general;
 }
 
 app.get('/api/config', (req, res) => {
@@ -165,13 +146,23 @@ app.get('/api/config', (req, res) => {
     requiresAccessCode: Boolean(SITE_ACCESS_CODE),
     maxTextLength: MAX_TEXT_LENGTH,
     rateLimitPerHour: RATE_LIMIT_PER_HOUR,
-    baseTerminology
+    maxOutputTokens: GLM_MAX_OUTPUT_TOKENS,
+    maxCustomPromptLength: MAX_CUSTOM_PROMPT_LENGTH,
+    baseTerminology,
+    modePrompts: {
+      paper: getModePrompt('paper'),
+      reviewer: getModePrompt('reviewer'),
+      email: getModePrompt('email'),
+      ppt: getModePrompt('ppt'),
+      caption: getModePrompt('caption'),
+      general: getModePrompt('general')
+    }
   });
 });
 
 app.post('/api/translate-workflow', rateLimit, requireAccessCode, async (req, res) => {
   try {
-    const { sourceText, textType = 'paper', userGlossary = '', direction = 'auto' } = req.body || {};
+    const { sourceText, textType = 'paper', userGlossary = '', direction = 'auto', customPrompt = '', customPromptMode = 'append' } = req.body || {};
     if (!sourceText || !sourceText.trim()) {
       return res.status(400).json({ error: 'Source text is required.' });
     }
@@ -179,82 +170,41 @@ app.post('/api/translate-workflow', rateLimit, requireAccessCode, async (req, re
       return res.status(400).json({ error: `Text is too long. Max length is ${MAX_TEXT_LENGTH} characters.` });
     }
 
-    const styleRules = getStyleRules(textType);
+    if ((customPrompt || '').length > MAX_CUSTOM_PROMPT_LENGTH) {
+      return res.status(400).json({ error: `Custom prompt is too long. Max length is ${MAX_CUSTOM_PROMPT_LENGTH} characters.` });
+    }
+
+    const fixedPrompt = getModePrompt(textType);
+    const cleanCustomPrompt = (customPrompt || '').trim();
+    const promptMode = customPromptMode === 'override' ? 'override' : 'append';
+    const effectivePrompt = cleanCustomPrompt
+      ? (promptMode === 'override'
+        ? `${fixedPrompt}\n\nUser custom prompt override or detailed instruction:\n${cleanCustomPrompt}\n\nIf any instruction conflicts, follow the user custom prompt, but do not violate safety or factual accuracy.`
+        : `${fixedPrompt}\n\nAdditional user custom instructions:\n${cleanCustomPrompt}\n\nFollow both the fixed mode prompt and the additional user instructions. If there is a conflict, prioritize the user custom instruction for style or format, but keep terminology and factual accuracy.`)
+      : fixedPrompt;
+    const textTypeLabel = getTextTypeLabel(textType);
     const mergedGlossary = `${baseTerminology}\n${userGlossary || ''}`.trim();
 
-    const workflowMessages = [
+    const messages = [
       {
         role: 'system',
-        content: `You are an expert academic translation workflow assistant.
-You must complete the entire workflow in one response:
-1. Generate a task-specific translation prompt.
-2. Extract and merge a bilingual terminology glossary.
-3. Translate the source text.
-4. Check terminology, style, logic, and ambiguity.
-
-Do not call external sources. Do not invent data, methods, references, or conclusions.
-Return structured content with the exact headings requested by the user.`
+        content: effectivePrompt
       },
       {
         role: 'user',
-        content: `Complete this translation workflow in ONE response.
-
-Text type: ${textType}
-Translation direction: ${direction}
-
-Existing glossary that must be respected and merged with newly extracted terms:
-${mergedGlossary}
-
-Style rules:
-${styleRules}
-
-Source text:
-${sourceText}
-
-Tasks:
-1. Identify the likely academic or practical field.
-2. Determine translation direction. If direction is auto, translate Chinese to English and English to Chinese.
-3. Generate a custom translation prompt for this exact text.
-4. Extract domain-specific terms, abbreviations, chemical species, instruments, variables, model names, and methods. Merge them with the existing glossary.
-5. Translate the source text according to the generated prompt and glossary.
-6. Check terminology consistency, tense, grammar, logic, units, symbols, chemical formulas, variables, and possible ambiguity.
-
-Output exactly with these sections:
-【Generated prompt】
-Write the actual prompt that guided the translation.
-
-【Auto glossary】
-Use a concise table with: Source term | Recommended translation | Note.
-
-【Detected field】
-State the field briefly.
-
-【Translation direction】
-State the direction briefly.
-
-【Translation】
-Provide the final translation. For academic paper methods and results, use past tense. Avoid unnecessary present participles and em dashes.
-
-【Chinese explanation / 中文对照】
-Give a Chinese explanation or Chinese counterpart so the user can verify meaning. If the target language is Chinese, briefly explain key choices in Chinese.
-
-【Terminology check】
-List whether key glossary terms were followed and whether any terms need confirmation.
-
-【Quality check】
-Check tense, grammar, logic, units, symbols, and style.
-
-【Issues to confirm】
-List any ambiguous points. If none, write “None”.`
+        content: `Use the fixed prompt below. Do not generate a new prompt.\n\nFixed mode prompt:\n${fixedPrompt}\n\nText type: ${textTypeLabel}\nTranslation direction: ${direction}\n\nGlossary to follow:\n${mergedGlossary}\n\nSource text:\n${sourceText}\n\nComplete the workflow in one response:\n1. Extract a concise glossary from the source text and merge it with the provided glossary. Include no more than 15 core terms unless the text clearly requires more.\n2. Translate the source text according to the fixed prompt and glossary.\n3. Check terminology, grammar, tense, logic, units, symbols, chemical formulas, and ambiguity.\n\nOutput exactly with these sections:\n【Fixed prompt used】\nBriefly show the fixed mode prompt that was used.\n\n【Auto glossary】\nUse a concise table with: Source term | Recommended translation | Note.\n\n【Translation】\nProvide the final translation.\n\n【Chinese explanation / 中文对照】\nGive a Chinese counterpart or Chinese explanation so the user can verify meaning. If the target language is Chinese, briefly explain key translation choices in Chinese.\n\n【Terminology check】\nList whether key terms were consistent.\n\n【Quality check】\nCheck tense, grammar, logic, units, symbols, and style. Keep it concise.\n\n【Issues to confirm】\nList ambiguous points. If none, write “None”.`
       }
     ];
 
-    const result = await callGLM(workflowMessages, 0.2);
+    const result = await callGLM(messages, 0.15);
 
     res.json({
       result,
-      generatedPromptAndGlossary: '',
-      workflowMode: 'single_call'
+      fixedPrompt,
+      customPrompt: cleanCustomPrompt,
+      customPromptMode: promptMode,
+      effectivePrompt,
+      workflowMode: 'fixed_prompt_with_optional_custom_prompt_single_call'
     });
   } catch (err) {
     console.error(err);

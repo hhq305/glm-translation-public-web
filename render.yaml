@@ -14,3 +14,5 @@ services:
         value: 12000
       - key: RATE_LIMIT_PER_HOUR
         value: 60
+      - key: GLM_MAX_OUTPUT_TOKENS
+        value: 4000
