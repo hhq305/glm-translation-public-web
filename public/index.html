@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>翻译工作流助手</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">GLM-4.7-Flash API</p>
+        <h1>翻译工作流助手</h1>
+        <p class="sub">适合论文、审稿回复、邮件、PPT讲稿和图表标题。先理解，再翻译，再检查。</p>
+      </div>
+    </section>
+
+    <section class="panel grid">
+      <div class="controls">
+        <label>文本类型</label>
+        <select id="mode">
+          <option value="paper">论文正文</option>
+          <option value="reviewer">回复审稿人</option>
+          <option value="email">英文邮件</option>
+          <option value="ppt">PPT讲稿</option>
+          <option value="caption">图注 / 表注</option>
+          <option value="general">通用翻译</option>
+        </select>
+
+        <label>源语言</label>
+        <input id="sourceLang" value="中文" />
+
+        <label>目标语言</label>
+        <input id="targetLang" value="英文" />
+
+        <label>温度 temperature</label>
+        <input id="temperature" type="number" min="0" max="1" step="0.1" value="0.2" />
+
+        <label>访问码，可选</label>
+        <input id="accessCode" type="password" placeholder="如果站点没有设置访问码，这里留空" />
+      </div>
+
+      <div class="glossaryBox">
+        <label>术语表，可选</label>
+        <textarea id="glossary">电辅助正渗透 = electrically assisted forward osmosis, eFO
+微生物脱盐电池 = microbial desalination cell, MDC
+膜蒸馏 = membrane distillation, MD
+鸟粪石 = struvite
+反向溶质通量 = reverse solute flux, RSF
+浓差极化 = concentration polarization, CP</textarea>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="card">
+        <div class="cardHeader">
+          <h2>原文</h2>
+          <button id="clearBtn" class="ghost">清空</button>
+        </div>
+        <textarea id="inputText" placeholder="把需要翻译的内容粘贴到这里..."></textarea>
+        <button id="translateBtn">开始翻译</button>
+      </div>
+
+      <div class="card">
+        <div class="cardHeader">
+          <h2>结果</h2>
+          <button id="copyBtn" class="ghost">复制</button>
+        </div>
+        <pre id="outputText">翻译结果会显示在这里。</pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

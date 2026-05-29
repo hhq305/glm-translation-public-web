@@ -1,0 +1,18 @@
+{
+  "name": "glm-translation-public-web",
+  "version": "1.1.0",
+  "description": "A public translation workflow website powered by GLM-4.7-Flash.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.18.3"
+  }
+}

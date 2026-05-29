@@ -1,0 +1,30 @@
+:root {
+  font-family: Inter, Arial, "Microsoft YaHei", sans-serif;
+  color: #172033;
+  background: #f4f6fb;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.container { max-width: 1180px; margin: 0 auto; padding: 36px 20px; }
+.hero { background: linear-gradient(135deg, #172033, #33415c); color: white; border-radius: 24px; padding: 34px; box-shadow: 0 16px 40px rgba(23,32,51,0.18); }
+.eyebrow { opacity: .75; margin: 0 0 8px; letter-spacing: .08em; text-transform: uppercase; font-size: 13px; }
+h1 { margin: 0; font-size: 40px; }
+.sub { margin: 12px 0 0; max-width: 680px; line-height: 1.7; color: #e8edf7; }
+.panel, .card { background: white; border: 1px solid #e6eaf2; border-radius: 20px; box-shadow: 0 10px 28px rgba(23,32,51,.06); }
+.grid { display: grid; grid-template-columns: 360px 1fr; gap: 18px; padding: 22px; margin-top: 22px; }
+.controls { display: grid; grid-template-columns: 1fr; gap: 8px; }
+label { font-weight: 700; font-size: 14px; margin-top: 8px; }
+input, select, textarea { width: 100%; border: 1px solid #d9dfeb; border-radius: 12px; padding: 12px 14px; font: inherit; background: #fbfcff; color: #172033; }
+textarea { resize: vertical; min-height: 150px; line-height: 1.6; }
+.glossaryBox textarea { height: 238px; }
+.workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 22px; }
+.card { padding: 20px; }
+.cardHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+h2 { margin: 0 0 14px; font-size: 20px; }
+#inputText { min-height: 420px; }
+pre { min-height: 482px; margin: 0; white-space: pre-wrap; word-break: break-word; background: #fbfcff; border: 1px solid #d9dfeb; border-radius: 12px; padding: 16px; line-height: 1.7; }
+button { border: none; border-radius: 12px; padding: 12px 18px; font-weight: 800; cursor: pointer; background: #315efb; color: white; margin-top: 14px; }
+button:hover { filter: brightness(.96); }
+button:disabled { opacity: .6; cursor: not-allowed; }
+.ghost { margin: 0; background: #eef2ff; color: #315efb; }
+@media (max-width: 860px) { .grid, .workspace { grid-template-columns: 1fr; } h1 { font-size: 32px; } }
