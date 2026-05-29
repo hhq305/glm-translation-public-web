@@ -3,23 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>翻译工作流助手</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>GLM 科研翻译工作流</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <main class="container">
     <section class="hero">
       <div>
-        <p class="eyebrow">GLM-4.7-Flash API</p>
-        <h1>翻译工作流助手</h1>
-        <p class="sub">适合论文、审稿回复、邮件、PPT讲稿和图表标题。先理解，再翻译，再检查。</p>
+        <h1>GLM 科研翻译工作流</h1>
+        <p>先由 GLM 自动生成翻译 Prompt 和术语表，再进行正式翻译。</p>
       </div>
+      <div class="badge" id="modelBadge">Model</div>
     </section>
 
     <section class="panel grid">
-      <div class="controls">
-        <label>文本类型</label>
-        <select id="mode">
+      <label>
+        文本类型
+        <select id="textType">
           <option value="paper">论文正文</option>
           <option value="reviewer">回复审稿人</option>
           <option value="email">英文邮件</option>
@@ -27,51 +27,63 @@
           <option value="caption">图注 / 表注</option>
           <option value="general">通用翻译</option>
         </select>
+      </label>
 
-        <label>源语言</label>
-        <input id="sourceLang" value="中文" />
+      <label>
+        翻译方向
+        <select id="direction">
+          <option value="auto">自动判断</option>
+          <option value="zh_to_en">中文 → 英文</option>
+          <option value="en_to_zh">英文 → 中文</option>
+        </select>
+      </label>
 
-        <label>目标语言</label>
-        <input id="targetLang" value="英文" />
-
-        <label>温度 temperature</label>
-        <input id="temperature" type="number" min="0" max="1" step="0.1" value="0.2" />
-
-        <label>访问码，可选</label>
-        <input id="accessCode" type="password" placeholder="如果站点没有设置访问码，这里留空" />
-      </div>
-
-      <div class="glossaryBox">
-        <label>术语表，可选</label>
-        <textarea id="glossary">电辅助正渗透 = electrically assisted forward osmosis, eFO
-微生物脱盐电池 = microbial desalination cell, MDC
-膜蒸馏 = membrane distillation, MD
-鸟粪石 = struvite
-反向溶质通量 = reverse solute flux, RSF
-浓差极化 = concentration polarization, CP</textarea>
-      </div>
+      <label id="accessCodeWrap" class="hidden">
+        访问码
+        <input id="accessCode" type="password" placeholder="请输入访问码" />
+      </label>
     </section>
 
-    <section class="workspace">
-      <div class="card">
-        <div class="cardHeader">
-          <h2>原文</h2>
-          <button id="clearBtn" class="ghost">清空</button>
-        </div>
-        <textarea id="inputText" placeholder="把需要翻译的内容粘贴到这里..."></textarea>
-        <button id="translateBtn">开始翻译</button>
+    <section class="panel">
+      <div class="section-title">
+        <h2>原文</h2>
+        <button id="clearBtn" class="ghost">清空</button>
       </div>
+      <textarea id="sourceText" placeholder="把需要翻译的内容粘贴到这里。"></textarea>
+      <div class="small" id="lengthHint">0 字符</div>
+    </section>
 
-      <div class="card">
-        <div class="cardHeader">
-          <h2>结果</h2>
-          <button id="copyBtn" class="ghost">复制</button>
-        </div>
-        <pre id="outputText">翻译结果会显示在这里。</pre>
+    <section class="panel">
+      <div class="section-title">
+        <h2>自定义术语表，可选</h2>
+        <button id="loadBaseGlossaryBtn" class="ghost">加载基础术语</button>
       </div>
+      <textarea id="userGlossary" class="glossary" placeholder="例如：\n汲取液 = draw solution\n鸟粪石 = struvite\n外接电阻 = external resistance"></textarea>
+    </section>
+
+    <section class="actions">
+      <button id="translateBtn">生成 Prompt 并翻译</button>
+      <button id="copyResultBtn" class="secondary">复制结果</button>
+      <button id="downloadBtn" class="secondary">下载 Markdown</button>
+    </section>
+
+    <section class="panel status hidden" id="statusBox"></section>
+
+    <section class="panel output hidden" id="promptBoxWrap">
+      <div class="section-title">
+        <h2>第一步：GLM 生成的 Prompt 与术语表</h2>
+      </div>
+      <pre id="promptBox"></pre>
+    </section>
+
+    <section class="panel output hidden" id="resultBoxWrap">
+      <div class="section-title">
+        <h2>第二步：翻译结果</h2>
+      </div>
+      <pre id="resultBox"></pre>
     </section>
   </main>
 
-  <script src="app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

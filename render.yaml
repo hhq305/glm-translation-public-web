@@ -6,13 +6,11 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
-      - key: GLM_API_KEY
-        sync: false
       - key: GLM_BASE_URL
         value: https://open.bigmodel.cn/api/paas/v4
       - key: GLM_MODEL
         value: glm-4.7-flash
       - key: MAX_TEXT_LENGTH
-        value: "12000"
+        value: 12000
       - key: RATE_LIMIT_PER_HOUR
-        value: "60"
+        value: 60

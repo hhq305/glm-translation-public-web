@@ -1,127 +1,264 @@
-import 'dotenv/config';
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const path = require('path');
 
 const app = express();
-app.set('trust proxy', 1);
+const PORT = process.env.PORT || 3000;
+const GLM_API_KEY = process.env.GLM_API_KEY;
+const GLM_BASE_URL = process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4';
+const GLM_MODEL = process.env.GLM_MODEL || 'glm-4.7-flash';
+const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 12000);
+const RATE_LIMIT_PER_HOUR = Number(process.env.RATE_LIMIT_PER_HOUR || 60);
+const SITE_ACCESS_CODE = process.env.SITE_ACCESS_CODE || '';
+
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
+app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const API_KEY = process.env.GLM_API_KEY;
-const BASE_URL = (process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '');
-const MODEL = process.env.GLM_MODEL || 'glm-4.7-flash';
-const SITE_ACCESS_CODE = process.env.SITE_ACCESS_CODE || '';
-const MAX_TEXT_LENGTH = Number(process.env.MAX_TEXT_LENGTH || 12000);
-const RATE_LIMIT_PER_HOUR = Number(process.env.RATE_LIMIT_PER_HOUR || 60);
+const ipHits = new Map();
 
-const requestLog = new Map();
-function getClientIp(req) {
-  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
-}
-function checkRateLimit(req, res, next) {
-  const ip = getClientIp(req);
+function rateLimit(req, res, next) {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
-  const windowMs = 60 * 60 * 1000;
-  const records = (requestLog.get(ip) || []).filter((t) => now - t < windowMs);
-  if (records.length >= RATE_LIMIT_PER_HOUR) {
-    return res.status(429).json({ error: `请求太频繁。当前限制为每小时 ${RATE_LIMIT_PER_HOUR} 次。` });
+  const oneHour = 60 * 60 * 1000;
+  const record = ipHits.get(ip) || [];
+  const fresh = record.filter((t) => now - t < oneHour);
+  if (fresh.length >= RATE_LIMIT_PER_HOUR) {
+    return res.status(429).json({ error: `Too many requests. Limit: ${RATE_LIMIT_PER_HOUR} per hour.` });
   }
-  records.push(now);
-  requestLog.set(ip, records);
+  fresh.push(now);
+  ipHits.set(ip, fresh);
   next();
 }
-function checkAccessCode(req, res, next) {
+
+function requireAccessCode(req, res, next) {
   if (!SITE_ACCESS_CODE) return next();
-  const code = req.headers['x-site-access-code'] || req.body?.accessCode || '';
+  const code = req.body.accessCode || req.headers['x-site-access-code'];
   if (code !== SITE_ACCESS_CODE) {
-    return res.status(401).json({ error: '访问码不正确。' });
+    return res.status(401).json({ error: 'Access code is incorrect.' });
   }
   next();
 }
-function buildSystemPrompt({ mode, sourceLang, targetLang, glossary }) {
-  const modeText = {
-    paper: '论文正文。要求准确、正式、逻辑清楚。实验方法和结果优先使用过去式。避免破折号，避免不必要的现在分词。',
-    reviewer: '回复审稿人。要求礼貌、严谨、克制，不要过度承诺。',
-    email: '英文邮件。要求自然、礼貌、简洁，不要太生硬。',
-    ppt: 'PPT讲稿。要求适合口头汇报，句子短，有过渡，便于直接说出来。',
-    caption: '图注或表注。要求简洁、规范、术语统一。',
-    general: '通用翻译。要求意思准确，语言自然，表达清楚。'
-  }[mode] || '通用翻译。要求意思准确，语言自然，表达清楚。';
 
-  return `你是专业科研翻译助手。请把${sourceLang || '原文'}翻译成${targetLang || '目标语言'}。
+async function callGLM(messages, temperature = 0.2) {
+  if (!GLM_API_KEY) {
+    throw new Error('GLM_API_KEY is missing. Please set it in environment variables.');
+  }
 
-任务类型：${modeText}
+  const response = await fetch(`${GLM_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GLM_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: GLM_MODEL,
+      messages,
+      temperature
+    })
+  });
 
-固定工作流：
-1. 先理解原文含义，并大胆纠正明显错别字、听写错误或语序问题。
-2. 统一术语，保留必要缩写。
-3. 给出高质量译文。
-4. 给出简短检查报告，包括术语、时态、逻辑和可能的不确定处。
-
-术语表：
-${glossary || '无'}
-
-输出格式必须为：
-【译文】
-...
-
-【检查报告】
-- 术语：...
-- 时态：...
-- 逻辑：...
-- 需确认：...`;
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = data?.error?.message || data?.message || JSON.stringify(data);
+    throw new Error(`GLM API error: ${detail}`);
+  }
+  return data?.choices?.[0]?.message?.content || '';
 }
 
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, model: MODEL, hasApiKey: Boolean(API_KEY) });
+const baseTerminology = `
+电辅助正渗透 = electrically assisted forward osmosis, eFO
+正渗透 = forward osmosis, FO
+微生物脱盐电池 = microbial desalination cell, MDC
+膜蒸馏 = membrane distillation, MD
+鸟粪石 = struvite
+汲取液 = draw solution
+进料液 = feed solution
+水通量 = water flux
+溶质通量 = solute flux
+反向溶质通量 = reverse solute flux, RSF
+反向盐通量 = reverse salt flux, RSF
+浓差极化 = concentration polarization, CP
+内部浓差极化 = internal concentration polarization, ICP
+外部浓差极化 = external concentration polarization, ECP
+营养盐回收 = nutrient recovery
+水资源再利用 = water reuse
+农业废水 = agricultural wastewater
+消化液上清液 = digester supernatant
+阳极室 = anode chamber
+阴极室 = cathode chamber
+盐室 = salt chamber
+阳离子交换膜 = cation exchange membrane, CEM
+阴离子交换膜 = anion exchange membrane, AEM
+外接电阻 = external resistance
+功率密度 = power density
+开路电压 = open circuit voltage, OCV
+化学需氧量 = chemical oxygen demand, COD
+总溶解固体 = total dissolved solids, TDS
+施加电压 = applied voltage
+电场 = electric field
+离子迁移 = ion migration
+离子扩散 = ion diffusion
+沉淀 = precipitation
+膜污染 = membrane fouling
+结垢 = scaling
+支持向量机 = support vector machine, SVM
+混合模型 = hybrid model
+机理模型 = mechanistic model
+`;
+
+function getStyleRules(textType) {
+  const common = `
+General rules:
+1. Keep scientific meaning accurate.
+2. Use concise and natural language.
+3. Keep chemical formulas, units, equations, variables, and sample IDs unchanged.
+4. Do not invent data, methods, references, or conclusions.
+5. If the source text is ambiguous, translate conservatively and list it under "需要确认".
+6. Preserve paragraph structure unless splitting improves clarity.
+`;
+
+  const map = {
+    paper: `Academic paper mode:
+1. Use formal academic English.
+2. For experimental methods and results, use past tense.
+3. Avoid unnecessary present participles.
+4. Avoid em dashes.
+5. Improve logic and readability without changing the meaning.
+6. Keep terminology consistent across the whole translation.`,
+    reviewer: `Reviewer response mode:
+1. Use polite, precise, and professional English.
+2. Avoid overclaiming.
+3. Clearly state what was revised, added, clarified, or checked.
+4. Keep the tone respectful and concise.`,
+    email: `Email mode:
+1. Use natural and polite English.
+2. Keep it short and clear.
+3. Avoid overly formal or stiff language unless the message is to a professor, editor, or administrator.`,
+    ppt: `Presentation script mode:
+1. Use spoken English.
+2. Keep sentences short.
+3. Add smooth transitions when needed.
+4. Avoid dense written-paper style.`,
+    caption: `Figure and table caption mode:
+1. Use concise caption style.
+2. Keep abbreviations, symbols, and units consistent.
+3. Avoid long explanations.
+4. Explain abbreviations when needed.`,
+    general: `General translation mode:
+1. Translate accurately and naturally.
+2. Keep the tone clear and readable.
+3. Avoid over-editing unless the original text is unclear.`
+  };
+
+  return `${common}\n${map[textType] || map.general}`;
+}
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    model: GLM_MODEL,
+    requiresAccessCode: Boolean(SITE_ACCESS_CODE),
+    maxTextLength: MAX_TEXT_LENGTH,
+    rateLimitPerHour: RATE_LIMIT_PER_HOUR,
+    baseTerminology
+  });
 });
 
-app.post('/api/translate', checkRateLimit, checkAccessCode, async (req, res) => {
+app.post('/api/translate-workflow', rateLimit, requireAccessCode, async (req, res) => {
   try {
-    if (!API_KEY) {
-      return res.status(500).json({ error: '服务器没有配置 GLM_API_KEY。请在部署平台的环境变量中填写 API Key。' });
+    const { sourceText, textType = 'paper', userGlossary = '', direction = 'auto' } = req.body || {};
+    if (!sourceText || !sourceText.trim()) {
+      return res.status(400).json({ error: 'Source text is required.' });
+    }
+    if (sourceText.length > MAX_TEXT_LENGTH) {
+      return res.status(400).json({ error: `Text is too long. Max length is ${MAX_TEXT_LENGTH} characters.` });
     }
 
-    const { text, mode, sourceLang, targetLang, glossary, temperature = 0.2 } = req.body || {};
-    if (!text || !text.trim()) {
-      return res.status(400).json({ error: '请输入需要翻译的文本。' });
-    }
-    if (text.length > MAX_TEXT_LENGTH) {
-      return res.status(400).json({ error: `文本太长。当前限制为 ${MAX_TEXT_LENGTH} 个字符。` });
-    }
+    const styleRules = getStyleRules(textType);
+    const mergedGlossary = `${baseTerminology}\n${userGlossary || ''}`.trim();
 
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+    const promptBuilderMessages = [
+      {
+        role: 'system',
+        content: 'You are a prompt engineer and terminology extraction assistant for academic translation. Return structured and directly usable content.'
       },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: Number(temperature),
-        messages: [
-          { role: 'system', content: buildSystemPrompt({ mode, sourceLang, targetLang, glossary }) },
-          { role: 'user', content: text }
-        ]
-      })
+      {
+        role: 'user',
+        content: `Create a custom translation prompt and extract a bilingual terminology glossary for the following source text.
+
+Text type: ${textType}
+Translation direction: ${direction}
+
+Existing glossary that must be respected:
+${mergedGlossary}
+
+Style rules:
+${styleRules}
+
+Tasks:
+1. Identify the likely field and translation direction.
+2. Extract domain-specific terms, abbreviations, chemical species, instruments, variables, model names, and methods.
+3. Merge the extracted terms with the existing glossary.
+4. Create a complete translation prompt that can be used by another GLM call.
+5. The prompt must require a final output with these sections:
+   【Translation】
+   【Chinese explanation / 中文对照】
+   【Terminology check】
+   【Prompt used】
+   【Issues to confirm】
+
+Return exactly with these headings:
+【Generated prompt】
+【Auto glossary】
+【Detected field】
+【Translation direction】
+
+Source text:
+${sourceText}`
+      }
+    ];
+
+    const generated = await callGLM(promptBuilderMessages, 0.15);
+
+    const translationMessages = [
+      {
+        role: 'system',
+        content: 'You are a careful academic translation assistant. Follow the generated prompt strictly. Do not add unsupported facts.'
+      },
+      {
+        role: 'user',
+        content: `Use the generated prompt and glossary below to translate the source text.
+
+${generated}
+
+Important extra constraints:
+1. Follow the terminology glossary strictly.
+2. For paper methods and results, use past tense.
+3. Avoid unnecessary present participles.
+4. Avoid em dashes.
+5. Keep units, symbols, equations, variables, and chemical formulas unchanged.
+6. If the text is Chinese, translate into English. If the text is English, translate into Chinese unless the generated prompt says otherwise.
+7. Include the generated prompt in the final section 【Prompt used】 so the user can inspect it.
+
+Source text:
+${sourceText}`
+      }
+    ];
+
+    const translation = await callGLM(translationMessages, 0.2);
+
+    res.json({
+      generatedPromptAndGlossary: generated,
+      result: translation
     });
-
-    const data = await response.json();
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: data?.error?.message || data?.message || 'GLM API 调用失败。',
-        raw: data
-      });
-    }
-
-    const output = data?.choices?.[0]?.message?.content || '';
-    res.json({ output, usage: data?.usage || null });
   } catch (err) {
-    res.status(500).json({ error: err.message || '服务器内部错误。' });
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
 
@@ -129,7 +266,6 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Public translation workflow site running on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`GLM translation workflow site is running on port ${PORT}`);
 });

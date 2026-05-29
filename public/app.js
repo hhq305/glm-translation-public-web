@@ -1,47 +1,137 @@
-const $ = (id) => document.getElementById(id);
+const els = {
+  modelBadge: document.getElementById('modelBadge'),
+  textType: document.getElementById('textType'),
+  direction: document.getElementById('direction'),
+  accessCodeWrap: document.getElementById('accessCodeWrap'),
+  accessCode: document.getElementById('accessCode'),
+  sourceText: document.getElementById('sourceText'),
+  userGlossary: document.getElementById('userGlossary'),
+  lengthHint: document.getElementById('lengthHint'),
+  clearBtn: document.getElementById('clearBtn'),
+  loadBaseGlossaryBtn: document.getElementById('loadBaseGlossaryBtn'),
+  translateBtn: document.getElementById('translateBtn'),
+  copyResultBtn: document.getElementById('copyResultBtn'),
+  downloadBtn: document.getElementById('downloadBtn'),
+  statusBox: document.getElementById('statusBox'),
+  promptBoxWrap: document.getElementById('promptBoxWrap'),
+  resultBoxWrap: document.getElementById('resultBoxWrap'),
+  promptBox: document.getElementById('promptBox'),
+  resultBox: document.getElementById('resultBox')
+};
 
-$('translateBtn').addEventListener('click', async () => {
-  const btn = $('translateBtn');
-  const output = $('outputText');
-  btn.disabled = true;
-  btn.textContent = '翻译中...';
-  output.textContent = '正在按工作流处理，请稍候。';
+let appConfig = { baseTerminology: '', maxTextLength: 12000, requiresAccessCode: false };
+
+function showStatus(message, isError = false) {
+  els.statusBox.textContent = message;
+  els.statusBox.classList.remove('hidden');
+  els.statusBox.classList.toggle('error', isError);
+}
+
+function hideStatus() {
+  els.statusBox.classList.add('hidden');
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    appConfig = await res.json();
+    els.modelBadge.textContent = appConfig.model || 'GLM';
+    if (appConfig.requiresAccessCode) {
+      els.accessCodeWrap.classList.remove('hidden');
+    }
+    updateLengthHint();
+  } catch (err) {
+    showStatus('配置加载失败，请检查服务是否正常运行。', true);
+  }
+}
+
+function updateLengthHint() {
+  const len = els.sourceText.value.length;
+  els.lengthHint.textContent = `${len} / ${appConfig.maxTextLength || 12000} 字符`;
+}
+
+els.sourceText.addEventListener('input', updateLengthHint);
+
+els.clearBtn.addEventListener('click', () => {
+  els.sourceText.value = '';
+  updateLengthHint();
+});
+
+els.loadBaseGlossaryBtn.addEventListener('click', () => {
+  els.userGlossary.value = appConfig.baseTerminology || '';
+});
+
+els.translateBtn.addEventListener('click', async () => {
+  const sourceText = els.sourceText.value.trim();
+  if (!sourceText) {
+    showStatus('请先输入需要翻译的内容。', true);
+    return;
+  }
+
+  els.translateBtn.disabled = true;
+  els.promptBoxWrap.classList.add('hidden');
+  els.resultBoxWrap.classList.add('hidden');
+  els.promptBox.textContent = '';
+  els.resultBox.textContent = '';
+  showStatus('正在执行两步工作流：先生成 Prompt 和术语表，再翻译。请稍等。');
 
   try {
-    const res = await fetch('/api/translate', {
+    const res = await fetch('/api/translate-workflow', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Site-Access-Code': $('accessCode')?.value || ''
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text: $('inputText').value,
-        mode: $('mode').value,
-        sourceLang: $('sourceLang').value,
-        targetLang: $('targetLang').value,
-        glossary: $('glossary').value,
-        temperature: $('temperature').value,
-        accessCode: $('accessCode')?.value || ''
+        sourceText,
+        textType: els.textType.value,
+        direction: els.direction.value,
+        userGlossary: els.userGlossary.value,
+        accessCode: els.accessCode.value
       })
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '请求失败');
-    output.textContent = data.output || '没有返回内容。';
+    if (!res.ok) {
+      throw new Error(data.error || '请求失败。');
+    }
+
+    els.promptBox.textContent = data.generatedPromptAndGlossary || '';
+    els.resultBox.textContent = data.result || '';
+    els.promptBoxWrap.classList.remove('hidden');
+    els.resultBoxWrap.classList.remove('hidden');
+    showStatus('完成。你可以检查 Prompt、术语表和译文。');
   } catch (err) {
-    output.textContent = `出错了：${err.message}`;
+    showStatus(err.message || '翻译失败。', true);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '开始翻译';
+    els.translateBtn.disabled = false;
   }
 });
 
-$('copyBtn').addEventListener('click', async () => {
-  await navigator.clipboard.writeText($('outputText').textContent);
-  $('copyBtn').textContent = '已复制';
-  setTimeout(() => $('copyBtn').textContent = '复制', 1200);
+els.copyResultBtn.addEventListener('click', async () => {
+  const text = els.resultBox.textContent || '';
+  if (!text) {
+    showStatus('还没有可复制的翻译结果。', true);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  showStatus('翻译结果已复制。');
 });
 
-$('clearBtn').addEventListener('click', () => {
-  $('inputText').value = '';
+els.downloadBtn.addEventListener('click', () => {
+  const prompt = els.promptBox.textContent || '';
+  const result = els.resultBox.textContent || '';
+  if (!prompt && !result) {
+    showStatus('还没有可下载的结果。', true);
+    return;
+  }
+  const md = `# GLM Translation Workflow Result\n\n## Generated Prompt and Glossary\n\n${prompt}\n\n## Translation Result\n\n${result}\n`;
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `translation-workflow-${new Date().toISOString().slice(0, 10)}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 });
+
+loadConfig();
